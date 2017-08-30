@@ -22,9 +22,11 @@ import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.context.annotation.Bean;
+import org.springframework.core.task.TaskExecutor;
 import org.springframework.data.mongodb.core.MongoOperations;
 import org.springframework.jdbc.core.ColumnMapRowMapper;
 import org.springframework.jdbc.core.RowMapper;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.transaction.PlatformTransactionManager;
 
 import javax.sql.DataSource;
@@ -53,6 +55,13 @@ public class DBToolApplication {
     private String table;
 
 
+    @Bean
+    public TaskExecutor taskExecutor() {
+        ThreadPoolTaskExecutor taskExecutor = new ThreadPoolTaskExecutor();
+        taskExecutor.setMaxPoolSize(Runtime.getRuntime().availableProcessors());
+        taskExecutor.afterPropertiesSet();
+        return taskExecutor;
+    }
 
     @Bean
     public ItemReader<Object> reader() {
@@ -63,6 +72,7 @@ public class DBToolApplication {
         reader.setRowMapper(columnMapRowMapper());
         return reader;
     }
+
 
     @Bean
     public JdbcCursorItemReader jdbcCursorItemReader() {
@@ -85,8 +95,9 @@ public class DBToolApplication {
         queryProvider.setSelectClause("*");
         queryProvider.setFromClause(table);
         Map<String, Order> sortKeys = new HashMap<>();
-        sortKeys.put("record_time", Order.ASCENDING);
-        sortKeys.put("unixtime", Order.ASCENDING);
+        //sortKeys.put("record_time", Order.ASCENDING);
+        //sortKeys.put("unixtime", Order.ASCENDING);
+        sortKeys.put("record_id", Order.ASCENDING);
         queryProvider.setSortKeys(sortKeys);
         return queryProvider;
     }
@@ -112,7 +123,7 @@ public class DBToolApplication {
 
     @Bean
     public Step step(){
-        return stepBuilderFactory.get("step").chunk(100000).reader(reader()).writer(mongoItemWriter()).build();
+        return stepBuilderFactory.get("step").chunk(1000000).reader(reader()).writer(mongoItemWriter()).taskExecutor(taskExecutor()).build();
     }
 
     @Bean
@@ -123,7 +134,7 @@ public class DBToolApplication {
     public static void main(String[] args) {
         ConfigurableApplicationContext run =
                 SpringApplication.run(DBToolApplication.class);
-        PlatformTransactionManager bean = run.getBean(PlatformTransactionManager.class);
-        System.out.println(bean);
+        //PlatformTransactionManager bean = run.getBean(PlatformTransactionManager.class);
+        //System.out.println(bean);
     }
 }
