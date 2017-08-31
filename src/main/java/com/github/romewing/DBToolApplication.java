@@ -34,11 +34,8 @@ import org.springframework.data.mongodb.core.MongoOperations;
 import org.springframework.jdbc.core.ColumnMapRowMapper;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
-import org.springframework.transaction.PlatformTransactionManager;
 
 import javax.sql.DataSource;
-import java.sql.ResultSet;
-import java.sql.SQLException;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -66,6 +63,23 @@ public class DBToolApplication {
     @Autowired
     private RowPartitioner partitioner;
 
+    public static void main(String[] args) {
+        ConfigurableApplicationContext run = SpringApplication.run(DBToolApplication.class);
+        Job job = run.getBean(Job.class);
+        try {
+            run.getBean(JobLauncher.class).run(job, new JobParameters()).getExitStatus();
+            int exit = SpringApplication.exit(run);
+            System.exit(exit);
+        } catch (JobExecutionAlreadyRunningException e) {
+            e.printStackTrace();
+        } catch (JobRestartException e) {
+            e.printStackTrace();
+        } catch (JobInstanceAlreadyCompleteException e) {
+            e.printStackTrace();
+        } catch (JobParametersInvalidException e) {
+            e.printStackTrace();
+        }
+    }
 
     @Bean
     public TaskExecutor taskExecutor() {
@@ -95,7 +109,6 @@ public class DBToolApplication {
         return reader;
     }
 
-
     @Bean
     public JdbcCursorItemReader jdbcCursorItemReader() {
         JdbcCursorItemReader reader = new JdbcCursorItemReader();
@@ -113,7 +126,7 @@ public class DBToolApplication {
 
     @Bean
     public PagingQueryProvider queryProvider() {
-        AbstractSqlPagingQueryProvider queryProvider =  new MySqlPagingQueryProvider();
+        AbstractSqlPagingQueryProvider queryProvider = new MySqlPagingQueryProvider();
         queryProvider.setSelectClause("*");
         queryProvider.setFromClause(table);
         queryProvider.setWhereClause("WEEKDAY(record_time) = :partition");
@@ -125,29 +138,30 @@ public class DBToolApplication {
         return queryProvider;
     }
 
-
     @Bean
     @StepScope
     public ItemWriter<Object> writer() {
-       return new ItemWriter<Object>() {
-            @Override
-            public void write(List items) throws Exception {
-                System.out.println(items);
-            }
+        return item -> {
+            System.out.println(item);
         };
     }
 
-   @Bean
-   @StepScope
+    @Bean
+    @StepScope
     public MongoItemWriter mongoItemWriter() {
         MongoItemWriter writer = new MongoItemWriter();
         writer.setTemplate(mongoOperations);
         writer.setCollection("collectValueDay");
+        try {
+            writer.afterPropertiesSet();
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
         return writer;
     }
 
     @Bean
-    public Step step(){
+    public Step step() {
         return stepBuilderFactory.get("step").allowStartIfComplete(true).partitioner(partitionStep()).partitioner("partition-step", partitioner).gridSize(7).taskExecutor(taskExecutor()).build();
     }
 
@@ -158,24 +172,5 @@ public class DBToolApplication {
     @Bean
     public Job job() {
         return jobBuilderFactory.get("job").incrementer(new RunIdIncrementer()).flow(step()).end().build();
-    }
-
-    public static void main(String[] args) {
-        ConfigurableApplicationContext run =
-                SpringApplication.run(DBToolApplication.class);
-        Job job = run.getBean(Job.class);
-        try {
-            run.getBean(JobLauncher.class).run(job, new JobParameters()).getExitStatus();
-            int exit = SpringApplication.exit(run);
-            System.exit(exit);
-        } catch (JobExecutionAlreadyRunningException e) {
-            e.printStackTrace();
-        } catch (JobRestartException e) {
-            e.printStackTrace();
-        } catch (JobInstanceAlreadyCompleteException e) {
-            e.printStackTrace();
-        } catch (JobParametersInvalidException e) {
-            e.printStackTrace();
-        }
     }
 }
