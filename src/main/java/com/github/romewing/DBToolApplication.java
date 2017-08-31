@@ -2,11 +2,18 @@ package com.github.romewing;
 
 
 import org.springframework.batch.core.Job;
+import org.springframework.batch.core.JobParameters;
+import org.springframework.batch.core.JobParametersInvalidException;
 import org.springframework.batch.core.Step;
 import org.springframework.batch.core.configuration.annotation.EnableBatchProcessing;
 import org.springframework.batch.core.configuration.annotation.JobBuilderFactory;
 import org.springframework.batch.core.configuration.annotation.StepBuilderFactory;
+import org.springframework.batch.core.configuration.annotation.StepScope;
+import org.springframework.batch.core.launch.JobLauncher;
 import org.springframework.batch.core.launch.support.RunIdIncrementer;
+import org.springframework.batch.core.repository.JobExecutionAlreadyRunningException;
+import org.springframework.batch.core.repository.JobInstanceAlreadyCompleteException;
+import org.springframework.batch.core.repository.JobRestartException;
 import org.springframework.batch.item.ItemReader;
 import org.springframework.batch.item.ItemWriter;
 import org.springframework.batch.item.data.MongoItemWriter;
@@ -39,6 +46,8 @@ import java.util.Map;
 @EnableBatchProcessing
 @SpringBootApplication
 public class DBToolApplication {
+
+    private static final String OVERRIDDEN_BY_EXPRESSION = null;
     @Autowired
     public JobBuilderFactory jobBuilderFactory;
 
@@ -54,22 +63,35 @@ public class DBToolApplication {
     @Value("${table}")
     private String table;
 
+    @Autowired
+    private RowPartitioner partitioner;
+
 
     @Bean
     public TaskExecutor taskExecutor() {
         ThreadPoolTaskExecutor taskExecutor = new ThreadPoolTaskExecutor();
-        taskExecutor.setMaxPoolSize(Runtime.getRuntime().availableProcessors());
+        taskExecutor.setMaxPoolSize(100);
+        taskExecutor.setCorePoolSize(7);
         taskExecutor.afterPropertiesSet();
         return taskExecutor;
     }
 
     @Bean
-    public ItemReader<Object> reader() {
+    @StepScope
+    public ItemReader<Object> reader(@Value("#{stepExecutionContext[partition]}") String partition) {
         JdbcPagingItemReader<Object> reader = new JdbcPagingItemReader<>();
         reader.setDataSource(dataSource);
         reader.setQueryProvider(queryProvider());
         reader.setPageSize(100000);
+        Map<String, Object> parameterValues = new HashMap<>();
+        parameterValues.put("partition", partition);
+        reader.setParameterValues(parameterValues);
         reader.setRowMapper(columnMapRowMapper());
+        try {
+            reader.afterPropertiesSet();
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
         return reader;
     }
 
@@ -94,6 +116,7 @@ public class DBToolApplication {
         AbstractSqlPagingQueryProvider queryProvider =  new MySqlPagingQueryProvider();
         queryProvider.setSelectClause("*");
         queryProvider.setFromClause(table);
+        queryProvider.setWhereClause("WEEKDAY(record_time) = :partition");
         Map<String, Order> sortKeys = new HashMap<>();
         //sortKeys.put("record_time", Order.ASCENDING);
         //sortKeys.put("unixtime", Order.ASCENDING);
@@ -104,6 +127,7 @@ public class DBToolApplication {
 
 
     @Bean
+    @StepScope
     public ItemWriter<Object> writer() {
        return new ItemWriter<Object>() {
             @Override
@@ -114,6 +138,7 @@ public class DBToolApplication {
     }
 
    @Bean
+   @StepScope
     public MongoItemWriter mongoItemWriter() {
         MongoItemWriter writer = new MongoItemWriter();
         writer.setTemplate(mongoOperations);
@@ -123,7 +148,11 @@ public class DBToolApplication {
 
     @Bean
     public Step step(){
-        return stepBuilderFactory.get("step").chunk(1000000).reader(reader()).writer(mongoItemWriter()).taskExecutor(taskExecutor()).build();
+        return stepBuilderFactory.get("step").allowStartIfComplete(true).partitioner(partitionStep()).partitioner("partition-step", partitioner).gridSize(7).taskExecutor(taskExecutor()).build();
+    }
+
+    public Step partitionStep() {
+        return stepBuilderFactory.get("partition-step").allowStartIfComplete(true).chunk(100000).reader(reader(OVERRIDDEN_BY_EXPRESSION)).writer(mongoItemWriter()).build();
     }
 
     @Bean
@@ -134,7 +163,19 @@ public class DBToolApplication {
     public static void main(String[] args) {
         ConfigurableApplicationContext run =
                 SpringApplication.run(DBToolApplication.class);
-        //PlatformTransactionManager bean = run.getBean(PlatformTransactionManager.class);
-        //System.out.println(bean);
+        Job job = run.getBean(Job.class);
+        try {
+            run.getBean(JobLauncher.class).run(job, new JobParameters()).getExitStatus();
+            int exit = SpringApplication.exit(run);
+            System.exit(exit);
+        } catch (JobExecutionAlreadyRunningException e) {
+            e.printStackTrace();
+        } catch (JobRestartException e) {
+            e.printStackTrace();
+        } catch (JobInstanceAlreadyCompleteException e) {
+            e.printStackTrace();
+        } catch (JobParametersInvalidException e) {
+            e.printStackTrace();
+        }
     }
 }

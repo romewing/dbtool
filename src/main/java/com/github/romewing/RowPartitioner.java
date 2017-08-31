@@ -3,10 +3,12 @@ package com.github.romewing;
 import org.springframework.batch.core.partition.support.Partitioner;
 import org.springframework.batch.core.partition.support.SimplePartitioner;
 import org.springframework.batch.item.ExecutionContext;
+import org.springframework.stereotype.Component;
 
 import java.util.HashMap;
 import java.util.Map;
 
+@Component
 public class RowPartitioner implements Partitioner {
 
     private static final String PARTITION_KEY = "partition_";
