@@ -1,7 +1,6 @@
 package com.github.romewing;
 
 import org.springframework.batch.core.partition.support.Partitioner;
-import org.springframework.batch.core.partition.support.SimplePartitioner;
 import org.springframework.batch.item.ExecutionContext;
 import org.springframework.stereotype.Component;
 
@@ -17,7 +16,7 @@ public class RowPartitioner implements Partitioner {
 
     @Override
     public Map<String, ExecutionContext> partition(int gridSize) {
-        Map<String, ExecutionContext> map = new HashMap<String, ExecutionContext>(gridSize);
+        Map<String, ExecutionContext> map = new HashMap<>(gridSize);
         for (int i = 0; i < gridSize; i++) {
             ExecutionContext context = new ExecutionContext();
             context.putInt(KEY_NAME, i);
